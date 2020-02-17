@@ -1,0 +1,115 @@
+de project log
+
+================sql to populate to dw================
+create table time(
+	timeid int not null identity(0,1),
+	DateTime char(16),
+	year smallint,
+	month smallint,
+	day smallint,
+	hour smallint,
+	minute smallint);
+
+create table title(
+	titleid int not null identity(0,1),
+	title varchar(200));
+
+create table site(
+	siteid int not null identity(0,1),
+	site varchar(200));
+
+create table platform(
+	platformid int not null identity(0,1),
+	platform varchar(50));
+
+create table staging(
+	factid int not null identity(0,1),
+	DateTime char(16) not null,
+	title varchar(200) not null,
+	site varchar(200) not null,
+	platform varchar(50) not null);
+
+create table fact(
+	factid int not null identity(0,1),
+	timeid int not null,
+	titleid int not null,
+	siteid int not null,
+	platformid int not null);
+
+insert into fact (timeid, titleid, siteid, platformid)
+select a.timeid, b.titleid, c.siteid, d.platformid
+from staging e
+left join
+time a
+on e.DateTime = a.DateTime
+left join
+title b
+on e.title = b.title
+left join
+site c
+on e.site = e.site
+left join
+platform d
+on e.platform = d.platform
+;
+
+================Lambda function to receive data file================
+
+================Transformation of Data================
+use python to read csv file, need to specify quote and escape character(quotechar='"',escapechar='\\' pandas)
+
+only keep rows with events containing 206
+
+only keep len(videotitle.split('|')) > 1
+
+in timestamp, T denotes the separator, Z means UTC, standard timezone
+
+convert datetime object to year/month/day/hour/minute columns, complete timestamp might be needed as well, since COPY command might not load data in order
+
+after finding all distinct values in VideoTitle columns, there are only: 'news', 'App Web', 'App Android', 'App iPhone', 'App iPad'
+
+we can consider 'news' as site name, 'App Web' as Desktop, and others platform
+
+lastly, convert the last piece of titles to video title
+
+IMPORTANT: generate one csv file for each table, because numbers of columns need to be the same
+need to consider data format, in order to 
+
+================Lambda function to upload transformed data file to S3================
+solution to lambda python packages issue:
+https://medium.com/@korniichuk/lambda-with-pandas-fd81aa2ff25e
+
+files in zip file:
+lambda.py
+pytz
+numpy
+pandas
+================Redshift cluster load data================
+use online query editor, use database "jrdemo"
+
+create tables in redshift
+
+use the following to copy data from s3 to dw:
+COPY time ("timeid", "DateTime", "year", "month", "day", "hour", "minute")
+FROM 's3://jr-demo/processed/dim_time.csv'
+credentials 'aws_iam_role=<arn>' 
+CSV
+EXPLICIT_IDS
+IGNOREHEADER 1;
+
+use following to check loading error:
+select top 10 * from stl_load_errors order by starttime desc;
+
+================linux connect to redshift================
+https://towardsdatascience.com/redshift-from-the-command-line-5d6b3233f649
+
+psql -h redshift-cluster-1.cembpxvde1cm.us-east-1.redshift.amazonaws.com -U admin -d jrdemo -p 5439
+
+================Redshift insert new batch of data================
+use copy command to directly append data to redshift
+
+use following pgql command to remove duplicate
+delete from time where timeid > (select min(timeid) from time a where time.datetime = a.datetime);
+
+================Generate Tableau report================
+
